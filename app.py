@@ -25,8 +25,8 @@ class User(db.Model):
     username = db.Column(db.String(80), unique=True, nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
 
-@app.before_first_request
-def create_tables():
+# Create tables once on app startup
+with app.app_context():
     db.create_all()
 
 @app.route('/add-user', methods=['POST'])
