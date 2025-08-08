@@ -1,20 +1,11 @@
-import os
 from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
+import os
 
 app = Flask(__name__)
 
-# Get DATABASE_URL from environment
-db_url = os.environ.get('DATABASE_URL')
-
-if not db_url:
-    raise RuntimeError("❌ DATABASE_URL is not set! Please set it as an environment variable.")
-
-# Render sometimes uses 'postgres://' instead of 'postgresql://'
-if db_url.startswith("postgres://"):
-    db_url = db_url.replace("postgres://", "postgresql://", 1)
-
-app.config['SQLALCHEMY_DATABASE_URI'] = db_url
+# Use environment variable for DB URL
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL').replace("postgres://", "postgresql://")
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
@@ -25,22 +16,45 @@ class User(db.Model):
     username = db.Column(db.String(80), unique=True, nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
 
-# Create tables once on app startup
-with app.app_context():
-    db.create_all()
+# Create tables using application context
+def create_tables():
+    with app.app_context():
+        try:
+            db.create_all()
+            print("Database tables created successfully!")
+        except Exception as e:
+            print(f"Error creating tables: {e}")
+            print("App will continue running, but database operations may fail.")
+
+@app.route('/health', methods=['GET'])
+def health_check():
+    try:
+        # Try to connect to database
+        db.session.execute(db.text('SELECT 1'))
+        return jsonify({"status": "healthy", "database": "connected"})
+    except Exception as e:
+        return jsonify({"status": "unhealthy", "database": "disconnected", "error": str(e)}), 500
 
 @app.route('/add-user', methods=['POST'])
 def add_user():
-    data = request.json
-    new_user = User(username=data['username'], email=data['email'])
-    db.session.add(new_user)
-    db.session.commit()
-    return jsonify({"message": "User added successfully"})
+    try:
+        data = request.json
+        new_user = User(username=data['username'], email=data['email'])
+        db.session.add(new_user)
+        db.session.commit()
+        return jsonify({"message": "User added successfully"})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/users', methods=['GET'])
 def get_users():
-    users = User.query.all()
-    return jsonify([{"id": u.id, "username": u.username, "email": u.email} for u in users])
+    try:
+        users = User.query.all()
+        return jsonify([{"id": u.id, "username": u.username, "email": u.email} for u in users])
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(debug=False)  # debug=False for production
+    # Try to create tables, but don't fail if database is unavailable
+    create_tables()
+    app.run(debug=True)
